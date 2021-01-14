@@ -17,7 +17,7 @@ import numpy as np
 from scipy.sparse.linalg import eigs as speig
 
 from sklearn.utils import check_X_y, check_array
-from skcosmo.utils import get_progress_bar
+from skcosmo.utils import ascii_progressbar
 from skcosmo.pcovr.pcovr_distances import pcovr_covariance, pcovr_kernel
 from .orthogonalizers import feature_orthogonalizer, sample_orthogonalizer
 
@@ -56,11 +56,7 @@ class _BaseCUR:
         self.tol = tol
         self.idx = []
         self.pi = []
-
-        if progress_bar:
-            self.report_progress = get_progress_bar()
-        else:
-            self.report_progress = lambda x: x
+        self.weights = None
 
     def select(self, n):
         """Method for CUR select based upon a product of the input matrices
@@ -80,11 +76,16 @@ class _BaseCUR:
         if len(self.idx) > n:
             return self.idx[:n]
 
-        for i in self.report_progress(range(len(self.idx), n)):
+        for i in ascii_progressbar(range(len(self.idx), n)):
             if self.iter:
                 v, U = speig(self.product, k=self.k, tol=self.tol)
                 U = U[:, np.flip(np.argsort(v))]
-                pi = (np.real(U)[:, : self.k] ** 2.0).sum(axis=1)
+                #If costs are given, they will skew the selection!
+                if self.weights is None:
+                    pi = (np.real(U)[:, : self.k] ** 2.0).sum(axis=1)
+                else:
+                    pi = (np.real(U)[:, : self.k] ** 2.0).sum(axis=1)/self.weights
+
             pi[self.idx] = 0.0
             self.idx.append(pi.argmax())
             self.pi.append(max(pi))
@@ -160,7 +161,7 @@ class SampleCUR(_BaseCUR):
 
     """
 
-    def __init__(self, X, mixing=1.0, Y=None, **kwargs):
+    def __init__(self, X, mixing=1.0, Y=None, weights=None, **kwargs):
         super().__init__(**kwargs)
 
         self.mixing = mixing
@@ -184,6 +185,7 @@ class SampleCUR(_BaseCUR):
                 self.Y_current = None
 
         self.product = self.get_product()
+        self.weights = weights
 
     def get_product(self):
         """
